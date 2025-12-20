@@ -1648,10 +1648,15 @@ test('is.any', t => {
 	t.false(is.any(is.integer, true, 'lol', {}));
 	t.true(is.any([is.string, is.number], {}, true, '🦄'));
 	t.false(is.any([is.boolean, is.number], 'unicorns', [], new Map()));
+	t.is(typeof is.any([is.string, is.number]), 'function');
 
 	t.throws(() => {
 		// eslint-disable-next-line @typescript-eslint/no-unsafe-argument
 		is.any(null as any, true);
+	});
+
+	t.throws(() => {
+		is.any([], 'value');
 	});
 
 	t.throws(() => {
@@ -1667,6 +1672,10 @@ test('is.any', t => {
 	});
 
 	t.throws(() => {
+		assert.any([is.string, is.number]);
+	});
+
+	t.throws(() => {
 		assert.any(is.boolean, '🦄', [], 3);
 	});
 
@@ -1677,6 +1686,10 @@ test('is.any', t => {
 	t.throws(() => {
 		// eslint-disable-next-line @typescript-eslint/no-unsafe-argument
 		assert.any(null as any, true);
+	});
+
+	t.throws(() => {
+		assert.any([], 'value');
 	});
 
 	t.throws(() => {
@@ -1726,10 +1739,16 @@ test('is.all', t => {
 	t.false(is.all(is.set, new Map(), {}));
 
 	t.true(is.all(is.array, ['1'], ['2']));
+	t.true(is.all([is.string, is.nonEmptyString], '🦄', 'unicorns'));
+	t.false(is.all([is.string, is.number], '🦄'));
 
 	t.throws(() => {
 		// eslint-disable-next-line @typescript-eslint/no-unsafe-argument
 		is.all(null as any, true);
+	});
+
+	t.throws(() => {
+		is.all([], 'value');
 	});
 
 	t.throws(() => {
@@ -1745,7 +1764,19 @@ test('is.all', t => {
 	});
 
 	t.throws(() => {
+		assert.all([is.string, is.number]);
+	});
+
+	t.notThrows(() => {
+		assert.all([is.string, is.nonEmptyString], '🦄', 'unicorns');
+	});
+
+	t.throws(() => {
 		assert.all(is.string, '🦄', []);
+	});
+
+	t.throws(() => {
+		assert.all([is.string, is.number], '🦄');
 	});
 
 	t.throws(() => {
@@ -1755,6 +1786,10 @@ test('is.all', t => {
 	t.throws(() => {
 		// eslint-disable-next-line @typescript-eslint/no-unsafe-argument
 		assert.all(null as any, true);
+	});
+
+	t.throws(() => {
+		assert.all([], 'value');
 	});
 
 	t.throws(() => {
@@ -1780,6 +1815,84 @@ test('is.all', t => {
 	}, {
 		// Default type assertion message
 		message: /Expected values which are `predicate returns truthy for all values`./,
+	});
+});
+
+test('is.any as predicate factory', t => {
+	// Returns a type guard function when called with only predicates
+	const isStringOrNumber = is.any([is.string, is.number]);
+	t.is(typeof isStringOrNumber, 'function');
+	t.true(isStringOrNumber('hello'));
+	t.true(isStringOrNumber(123));
+	t.false(isStringOrNumber(true));
+	t.false(isStringOrNumber({}));
+
+	// Type narrowing works correctly
+	const value: unknown = 'test';
+	if (isStringOrNumber(value)) {
+		// TypeScript should narrow to string | number
+		const narrowed: string | number = value;
+		t.pass(`narrowed to: ${typeof narrowed}`);
+	}
+
+	// Works with is.optional
+	t.true(is.optional(undefined, is.any([is.string, is.number])));
+	t.true(is.optional('test', is.any([is.string, is.number])));
+	t.true(is.optional(42, is.any([is.string, is.number])));
+	t.false(is.optional(true, is.any([is.string, is.number])));
+
+	const predicateArray: Predicate[] = [is.string, is.number];
+	const isStringOrNumberFromArray = is.any(predicateArray);
+	t.is(typeof isStringOrNumberFromArray, 'function');
+	t.true(isStringOrNumberFromArray('hello'));
+	t.true(isStringOrNumberFromArray(123));
+	t.false(isStringOrNumberFromArray(true));
+
+	// Type narrowing with is.optional
+	const optionalValue: unknown = undefined;
+	if (is.optional(optionalValue, is.any([is.string, is.number]))) {
+		// TypeScript should narrow to string | number | undefined
+		const narrowed: string | number | undefined = optionalValue;
+		t.pass(`optional narrowed to: ${typeof narrowed}`);
+	}
+
+	// Works with more predicates
+	const isStringOrNumberOrBoolean = is.any([is.string, is.number, is.boolean]);
+	t.true(isStringOrNumberOrBoolean('hello'));
+	t.true(isStringOrNumberOrBoolean(123));
+	t.true(isStringOrNumberOrBoolean(true));
+	t.false(isStringOrNumberOrBoolean({}));
+
+	t.throws(() => {
+		// eslint-disable-next-line @typescript-eslint/no-unsafe-argument
+		is.any([is.string, 123 as any]);
+	});
+});
+
+test('is.all as predicate factory', t => {
+	// Returns a type guard function when called with only predicates
+	const isArrayAndNonEmpty = is.all([is.array, is.nonEmptyArray]);
+	t.is(typeof isArrayAndNonEmpty, 'function');
+	t.true(isArrayAndNonEmpty(['hello']));
+	t.false(isArrayAndNonEmpty([]));
+	t.false(isArrayAndNonEmpty('hello'));
+
+	// Type narrowing works correctly
+	const value: unknown = ['test'];
+	if (isArrayAndNonEmpty(value)) {
+		// TypeScript should narrow to the intersection type
+		t.true(Array.isArray(value));
+		t.true(value.length > 0);
+	}
+
+	// Works with is.optional
+	t.true(is.optional(undefined, is.all([is.object, is.plainObject])));
+	t.true(is.optional({foo: 'bar'}, is.all([is.object, is.plainObject])));
+	t.false(is.optional([], is.all([is.object, is.plainObject])));
+
+	t.throws(() => {
+		// eslint-disable-next-line @typescript-eslint/no-unsafe-argument
+		is.all([is.string, 123 as any]);
 	});
 });
 

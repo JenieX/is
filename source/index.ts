@@ -332,15 +332,77 @@ function isAbsoluteModule2(remainder: 0 | 1) {
 	return (value: unknown): value is number => isInteger(value) && Math.abs(value % 2) === remainder;
 }
 
-export function isAll(predicate: Predicate, ...values: unknown[]): boolean {
-	return predicateOnArray(Array.prototype.every, predicate, values);
+type TypeGuard<T> = (value: unknown) => value is T;
+
+function validatePredicateArray(predicateArray: readonly Predicate[], allowEmpty: boolean) {
+	if (predicateArray.length === 0) {
+		if (allowEmpty) {
+			// Next major release: throw for empty predicate arrays to avoid vacuous results.
+			// throw new TypeError('Invalid predicate array');
+		} else {
+			throw new TypeError('Invalid predicate array');
+		}
+
+		return;
+	}
+
+	for (const predicate of predicateArray) {
+		if (!isFunction(predicate)) {
+			throw new TypeError(`Invalid predicate: ${JSON.stringify(predicate)}`);
+		}
+	}
 }
 
-export function isAny(predicate: Predicate | Predicate[], ...values: unknown[]): boolean {
-	const predicates = isArray(predicate) ? predicate : [predicate];
-	return predicates.some(singlePredicate =>
-		predicateOnArray(Array.prototype.some, singlePredicate, values),
-	);
+// Predicate factory overloads - return a type guard when called with only predicates
+export function isAll<T1>(predicates: [TypeGuard<T1>]): TypeGuard<T1>;
+export function isAll<T1, T2>(predicates: [TypeGuard<T1>, TypeGuard<T2>]): TypeGuard<T1 & T2>;
+export function isAll<T1, T2, T3>(predicates: [TypeGuard<T1>, TypeGuard<T2>, TypeGuard<T3>]): TypeGuard<T1 & T2 & T3>;
+export function isAll<T1, T2, T3, T4>(predicates: [TypeGuard<T1>, TypeGuard<T2>, TypeGuard<T3>, TypeGuard<T4>]): TypeGuard<T1 & T2 & T3 & T4>;
+export function isAll<T1, T2, T3, T4, T5>(predicates: [TypeGuard<T1>, TypeGuard<T2>, TypeGuard<T3>, TypeGuard<T4>, TypeGuard<T5>]): TypeGuard<T1 & T2 & T3 & T4 & T5>;
+export function isAll(predicates: ReadonlyArray<TypeGuard<unknown>>): TypeGuard<unknown>;
+export function isAll(predicates: readonly Predicate[]): Predicate;
+// Evaluator overload - check if all values match the predicate
+export function isAll(predicate: Predicate | readonly Predicate[], ...values: unknown[]): boolean;
+export function isAll(predicate: Predicate | readonly Predicate[], ...values: unknown[]): boolean | Predicate {
+	if (Array.isArray(predicate)) {
+		const predicateArray = predicate as readonly Predicate[];
+		validatePredicateArray(predicateArray, values.length === 0);
+
+		const combinedPredicate = (value: unknown) => predicateArray.every(singlePredicate => singlePredicate(value));
+		if (values.length === 0) {
+			return combinedPredicate;
+		}
+
+		return predicateOnArray(Array.prototype.every, combinedPredicate, values);
+	}
+
+	return predicateOnArray(Array.prototype.every, predicate as Predicate, values);
+}
+
+// Predicate factory overloads - return a type guard when called with only predicates
+export function isAny<T1>(predicates: [TypeGuard<T1>]): TypeGuard<T1>;
+export function isAny<T1, T2>(predicates: [TypeGuard<T1>, TypeGuard<T2>]): TypeGuard<T1 | T2>;
+export function isAny<T1, T2, T3>(predicates: [TypeGuard<T1>, TypeGuard<T2>, TypeGuard<T3>]): TypeGuard<T1 | T2 | T3>;
+export function isAny<T1, T2, T3, T4>(predicates: [TypeGuard<T1>, TypeGuard<T2>, TypeGuard<T3>, TypeGuard<T4>]): TypeGuard<T1 | T2 | T3 | T4>;
+export function isAny<T1, T2, T3, T4, T5>(predicates: [TypeGuard<T1>, TypeGuard<T2>, TypeGuard<T3>, TypeGuard<T4>, TypeGuard<T5>]): TypeGuard<T1 | T2 | T3 | T4 | T5>;
+export function isAny(predicates: ReadonlyArray<TypeGuard<unknown>>): TypeGuard<unknown>;
+export function isAny(predicates: readonly Predicate[]): Predicate;
+// Evaluator overload - check if any value matches any predicate
+export function isAny(predicate: Predicate | readonly Predicate[], ...values: unknown[]): boolean;
+export function isAny(predicate: Predicate | readonly Predicate[], ...values: unknown[]): boolean | Predicate {
+	if (Array.isArray(predicate)) {
+		const predicateArray = predicate as readonly Predicate[];
+		validatePredicateArray(predicateArray, values.length === 0);
+
+		const combinedPredicate = (value: unknown) => predicateArray.some(singlePredicate => singlePredicate(value));
+		if (values.length === 0) {
+			return combinedPredicate;
+		}
+
+		return predicateOnArray(Array.prototype.some, combinedPredicate, values);
+	}
+
+	return predicateOnArray(Array.prototype.some, predicate as Predicate, values);
 }
 
 export function isOptional<T>(value: unknown, predicate: (value: unknown) => value is T): value is T | undefined {
@@ -715,8 +777,6 @@ export function isTruthy<T>(value: T | Falsy): value is T {
 	return Boolean(value);
 }
 
-type TypeGuard<T> = (value: unknown) => value is T;
-
 // eslint-disable-next-line @typescript-eslint/ban-types
 type ResolveTypesOfTypeGuardsTuple<TypeGuardsOfT, ResultOfT extends unknown[] = [] > =
 	TypeGuardsOfT extends [TypeGuard<infer U>, ...infer TOthers]
@@ -943,8 +1003,8 @@ type Assert = {
 	inRange: (value: number, range: number | [number, number], message?: string) => asserts value is number;
 
 	// Variadic functions.
-	any: (predicate: Predicate | Predicate[], ...values: unknown[]) => void | never;
-	all: (predicate: Predicate, ...values: unknown[]) => void | never;
+	any: (predicate: Predicate | readonly Predicate[], ...values: unknown[]) => void | never;
+	all: (predicate: Predicate | readonly Predicate[], ...values: unknown[]) => void | never;
 
 	/**
 	Asserts that `value` is `undefined` or satisfies the provided `assertion`.
@@ -1146,17 +1206,26 @@ function isIsMethodName(value: unknown): value is IsMethodName {
 	return isMethodNames.includes(value as IsMethodName);
 }
 
-export function assertAll(predicate: Predicate, ...values: unknown[]): void | never {
+export function assertAll(predicate: Predicate | readonly Predicate[], ...values: unknown[]): void | never {
+	if (values.length === 0) {
+		throw new TypeError('Invalid number of values');
+	}
+
 	if (!isAll(predicate, ...values)) {
-		const expectedType = isIsMethodName(predicate.name) ? methodTypeMap[predicate.name] : 'predicate returns truthy for all values';
+		const predicateFunction = predicate as Predicate;
+		const expectedType = !Array.isArray(predicate) && isIsMethodName(predicateFunction.name) ? methodTypeMap[predicateFunction.name] : 'predicate returns truthy for all values';
 		throw new TypeError(typeErrorMessageMultipleValues(expectedType, values));
 	}
 }
 
-export function assertAny(predicate: Predicate | Predicate[], ...values: unknown[]): void | never {
+export function assertAny(predicate: Predicate | readonly Predicate[], ...values: unknown[]): void | never {
+	if (values.length === 0) {
+		throw new TypeError('Invalid number of values');
+	}
+
 	if (!isAny(predicate, ...values)) {
-		const predicates = isArray(predicate) ? predicate : [predicate];
-		const expectedTypes = predicates.map(predicate => isIsMethodName(predicate.name) ? methodTypeMap[predicate.name] : 'predicate returns truthy for any value');
+		const predicates = Array.isArray(predicate) ? predicate as readonly Predicate[] : [predicate as Predicate];
+		const expectedTypes = predicates.map(singlePredicate => isIsMethodName(singlePredicate.name) ? methodTypeMap[singlePredicate.name] : 'predicate returns truthy for any value');
 		throw new TypeError(typeErrorMessageMultipleValues(expectedTypes, values));
 	}
 }
